@@ -1,0 +1,44 @@
+services:
+  
+  multichain:
+    build: ./multichain_docker
+    container_name: multichain-node
+    command: >
+      sh -c "
+        multichain-util create chain1 || true &&
+        multichaind chain1 -rpcport=2601 -rpcallowip=0.0.0.0/0 -rpcuser=multichainrpc -rpcpassword=password -daemon &&
+        echo 'Multichain node started in daemon mode.' &&
+        echo 'Waiting for Multichain node to be ready...' &&
+        while ! nc -z localhost 2601; do sleep 2; done &&
+        echo 'Multichain node is ready.' &&
+        sleep 5 &&  # Add a delay to ensure full readiness
+        echo 'Checking if stream1 exists...' &&
+        if ! multichain-cli chain1 -rpcuser=multichainrpc -rpcpassword=password -rpcport=2601 liststreams stream1 | grep stream1; then
+          echo 'Creating stream1...' &&
+          multichain-cli chain1 -rpcuser=multichainrpc -rpcpassword=password -rpcport=2601 create stream stream1 false;
+        else
+          echo 'Stream stream1 already exists, skipping creation.';
+        fi &&
+        echo 'Subscribing to stream1...' &&
+        multichain-cli chain1 -rpcuser=multichainrpc -rpcpassword=password -rpcport=2601 subscribe stream1 &&
+        echo 'Stream subscribed. Keeping Multichain node running...' &&
+        tail -f /dev/null
+      "
+    ports:
+      # - "8000:8000"   # External port, may not be needed
+      - "7447:7447"
+      - "2787:2787"
+      - "2601:2601"   # RPC API port
+    volumes:
+      - ./multichain_data:/root/.multichain
+  
+  python_app:
+    build: .
+    container_name: python-app
+    depends_on:
+      - multichain
+    volumes:
+      - .:/app
+    environment:
+      MULTICHAIN_URL: "http://multichain-node:2601"
+    command: python app.py
